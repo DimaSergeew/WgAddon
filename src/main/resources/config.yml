@@ -1,20 +1,15 @@
-# === WgAddon - Исправления для гриф сервера ===
-# Этот плагин обходит ограничения WorldGuard на гриф серверах
-
-# Включить ли фикс поршней в защищенных регионах?
-# Позволяет поршням работать в приватах
-enable_pistons_fix: true
-
-# Включить ли фикс падающих блоков в защищенных регионах?
-# Позволяет блокам с физикой падать в приватах без выпадения предметов
-enable_falling_blocks_fix: true
-
-# Включить ли фикс для Wither'ов (иссушителей)?
-# Позволяет Wither'ам разрушать блоки и взрываться в любых защищенных регионах
-enable_viser_break_fix: true
-
-# === Что исправляет плагин ===
-# 1. Поршни - работают в приватах
-# 2. Падающие блоки - не выпадают предметами в приватах  
-# 3. Wither'ы - могут разрушать блоки в любых приватах
-# 4. Взрывы Wither'ов - разрешены в защищенных регионах
+# config.yml
+grief:
+  mode: "allow_everywhere_except_safe" # или "allow_only_listed"
+  safe-regions:
+    - spawn
+    - market
+  safe-worlds:
+    - world_nether_safe
+  allowed-regions: []   # используешь, если mode = allow_only_listed
+features:
+  falling_blocks: true
+  pistons: true
+  wither: true
+cleanup:
+  falling_block_mark_ms: 1000   # окно, в которое отменяем ItemSpawn после падения блока

@@ -1,120 +1,73 @@
 package ru.bedepay.wgaddon.listener;
 
-import com.sk89q.worldedit.bukkit.BukkitAdapter;
-import com.sk89q.worldedit.math.BlockVector3;
-import com.sk89q.worldguard.WorldGuard;
-import com.sk89q.worldguard.protection.ApplicableRegionSet;
-import com.sk89q.worldguard.protection.managers.RegionManager;
-import com.sk89q.worldguard.protection.regions.RegionContainer;
 import org.bukkit.Location;
 import org.bukkit.block.Block;
 import org.bukkit.entity.FallingBlock;
-import org.bukkit.event.EventHandler;
-import org.bukkit.event.EventPriority;
-import org.bukkit.event.Listener;
+import org.bukkit.event.*;
 import org.bukkit.event.entity.EntityChangeBlockEvent;
 import org.bukkit.event.entity.ItemSpawnEvent;
 import org.bukkit.plugin.java.JavaPlugin;
+import ru.bedepay.wgaddon.util.Utils;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Map;
+import java.util.UUID;
 
 public final class FallingBlockListener implements Listener {
-   private final RegionContainer container;
-   private final List<Location> fallingBlockLocations;
+    private final JavaPlugin plugin;
+    private final Map<Key, Long> marks = new HashMap<>();
 
-   public FallingBlockListener(JavaPlugin plugin) {
-      if (plugin == null) {
-         throw new IllegalArgumentException("plugin cannot be null");
-      }
-      
-      boolean isEnabled = plugin.getConfig().getBoolean("enable_falling_blocks_fix");
-      if (isEnabled) {
-         plugin.getServer().getPluginManager().registerEvents(this, plugin);
-      }
+    private record Key(UUID world, int x, int y, int z) {}
 
-      RegionContainer container = WorldGuard.getInstance().getPlatform().getRegionContainer();
-      if (container == null) {
-         throw new IllegalStateException("RegionContainer cannot be null");
-      }
-      this.container = container;
-      this.fallingBlockLocations = new ArrayList<>();
-   }
+    public FallingBlockListener(JavaPlugin plugin) {
+        this.plugin = plugin;
+        if (plugin.getConfig().getBoolean("features.falling_blocks", true)) {
+            plugin.getServer().getPluginManager().registerEvents(this, plugin);
+        }
+    }
 
-   @EventHandler(
-      priority = EventPriority.HIGHEST
-   )
-   public final void on(EntityChangeBlockEvent event) {
-      if (event == null || !(event.getEntity() instanceof FallingBlock)) {
-         return;
-      }
-      
-      Block block = event.getBlock();
-      if (block == null) {
-         return;
-      }
-      
-      Location blockLocation = block.getLocation().toBlockLocation();
-      if (blockLocation == null) {
-         return;
-      }
-      
-      // Запоминаем локацию падающего блока
-      this.fallingBlockLocations.add(blockLocation);
-      
-      // Если блок в защищенном регионе - разрешаем падающему блоку его изменить
-      if (this.isLocationInRegion(blockLocation)) {
-         event.setCancelled(false);
-      }
-   }
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void on(EntityChangeBlockEvent event) {
+        if (!(event.getEntity() instanceof FallingBlock)) return;
 
-   @EventHandler(
-      priority = EventPriority.HIGHEST
-   )
-   public final void on(ItemSpawnEvent event) {
-      if (event == null) {
-         return;
-      }
-      
-      Location eventLocation = event.getLocation().toBlockLocation();
-      if (eventLocation == null) {
-         return;
-      }
-      
-      // Проверяем, есть ли в этой локации падающий блок
-      Location foundLocation = null;
-      for (Location location : this.fallingBlockLocations) {
-         if (this.isLocationsSimilar(location, eventLocation)) {
-            foundLocation = location;
-            break;
-         }
-      }
-      
-      // Если нашли падающий блок в этой локации - отменяем спавн предмета
-      if (foundLocation != null) {
-         this.fallingBlockLocations.remove(foundLocation);
-         event.setCancelled(true);
-      }
-   }
+        Block b = event.getBlock();
+        Location loc = b.getLocation();
+        long now = System.currentTimeMillis();
+        long ttl = plugin.getConfig().getLong("cleanup.falling_block_mark_ms", 1000);
 
-   private final boolean isLocationInRegion(Location loc) {
-      if (loc == null || loc.getWorld() == null) {
-         return false;
-      }
-      
-      RegionManager regionManager = this.container.get(BukkitAdapter.adapt(loc.getWorld()));
-      if (regionManager == null) {
-         return false;
-      }
-      
-      ApplicableRegionSet regions = regionManager.getApplicableRegions(BlockVector3.at(loc.getBlockX(), loc.getBlockY(), loc.getBlockZ()));
-      return regions.size() > 0;
-   }
+        // пометим точку падения
+        marks.put(new Key(loc.getWorld().getUID(), loc.getBlockX(), loc.getBlockY(), loc.getBlockZ()), now);
 
-   private final boolean isLocationsSimilar(Location loc1, Location loc2) {
-      if (loc1 == null || loc2 == null) {
-         return false;
-      }
-      return (int)loc1.getX() == (int)loc2.getX() && (int)loc1.getZ() == (int)loc2.getZ();
-   }
+        // чистка старых меток «по пути»
+        if (marks.size() > 2048) sweep(now, ttl);
+
+        // разрешаем механику, если тут гриф разрешён
+        if (Utils.isGriefAllowed(plugin, loc)) {
+            event.setCancelled(false);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void on(ItemSpawnEvent event) {
+        Location loc = event.getLocation();
+        Key k = new Key(loc.getWorld().getUID(), loc.getBlockX(), loc.getBlockY(), loc.getBlockZ());
+        Long t = marks.remove(k);
+        if (t != null) {
+            long ttl = plugin.getConfig().getLong("cleanup.falling_block_mark_ms", 1000);
+            if (System.currentTimeMillis() - t <= ttl) {
+                // предмет родился как следствие падения блока: если гриф тут разрешён — убираем айтем
+                if (Utils.isGriefAllowed(plugin, loc)) {
+                    event.setCancelled(true);
+                }
+            }
+        }
+    }
+
+    private void sweep(long now, long ttl) {
+        Iterator<Map.Entry<Key, Long>> it = marks.entrySet().iterator();
+        while (it.hasNext()) {
+            if (now - it.next().getValue() > ttl) it.remove();
+        }
+    }
 }

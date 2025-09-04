@@ -1,84 +1,48 @@
 package ru.bedepay.wgaddon.listener;
 
-import com.sk89q.worldedit.bukkit.BukkitAdapter;
-import com.sk89q.worldedit.math.BlockVector3;
-import com.sk89q.worldguard.WorldGuard;
-import com.sk89q.worldguard.protection.ApplicableRegionSet;
-import com.sk89q.worldguard.protection.managers.RegionManager;
-import com.sk89q.worldguard.protection.regions.RegionContainer;
 import org.bukkit.Location;
-import org.bukkit.event.EventHandler;
-import org.bukkit.event.EventPriority;
-import org.bukkit.event.Listener;
+import org.bukkit.block.Block;
+import org.bukkit.event.*;
 import org.bukkit.event.block.BlockPistonExtendEvent;
 import org.bukkit.event.block.BlockPistonRetractEvent;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.util.Vector;
+import ru.bedepay.wgaddon.util.Utils;
 
 public final class PistonListener implements Listener {
-   private final RegionContainer container;
+    private final JavaPlugin plugin;
 
-   public PistonListener(JavaPlugin plugin) {
-      if (plugin == null) {
-         throw new IllegalArgumentException("plugin cannot be null");
-      }
-      
-      boolean isEnabled = plugin.getConfig().getBoolean("enable_pistons_fix");
-      if (isEnabled) {
-         plugin.getServer().getPluginManager().registerEvents(this, plugin);
-      }
+    public PistonListener(JavaPlugin plugin) {
+        this.plugin = plugin;
+        if (plugin.getConfig().getBoolean("features.pistons", true)) {
+            plugin.getServer().getPluginManager().registerEvents(this, plugin);
+        }
+    }
 
-      RegionContainer container = WorldGuard.getInstance().getPlatform().getRegionContainer();
-      if (container == null) {
-         throw new IllegalStateException("RegionContainer cannot be null");
-      }
-      this.container = container;
-   }
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void on(BlockPistonExtendEvent event) {
+        Vector dir = event.getDirection().getDirection();
+        // проверяем все перемещаемые блоки и «новую голову поршня»
+        for (Block moved : event.getBlocks()) {
+            Location target = moved.getLocation().add(dir);
+            if (!Utils.isGriefAllowed(plugin, target)) return; // где-то нельзя — не трогаем cancel
+        }
+        Location head = event.getBlock().getLocation().add(dir);
+        if (Utils.isGriefAllowed(plugin, head)) {
+            event.setCancelled(false);
+        }
+    }
 
-   @EventHandler(
-      priority = EventPriority.HIGHEST
-   )
-   public final void on(BlockPistonExtendEvent event) {
-      if (event == null) {
-         return;
-      }
-      
-      // Проверяем, находится ли поршень в защищенном регионе
-      Location pistonLocation = event.getBlock().getLocation();
-      if (isLocationInProtectedRegion(pistonLocation)) {
-         // Разрешаем поршню работать в защищенном регионе
-         event.setCancelled(false);
-      }
-   }
-
-   @EventHandler(
-      priority = EventPriority.HIGHEST
-   )
-   public final void on(BlockPistonRetractEvent event) {
-      if (event == null) {
-         return;
-      }
-      
-      // Проверяем, находится ли поршень в защищенном регионе
-      Location pistonLocation = event.getBlock().getLocation();
-      if (isLocationInProtectedRegion(pistonLocation)) {
-         // Разрешаем поршню работать в защищенном регионе
-         event.setCancelled(false);
-      }
-   }
-
-   private boolean isLocationInProtectedRegion(Location loc) {
-      if (loc == null || loc.getWorld() == null) {
-         return false;
-      }
-      
-      RegionManager regionManager = this.container.get(BukkitAdapter.adapt(loc.getWorld()));
-      if (regionManager == null) {
-         return false;
-      }
-      
-      ApplicableRegionSet regions = regionManager.getApplicableRegions(BlockVector3.at(loc.getBlockX(), loc.getBlockY(), loc.getBlockZ()));
-      
-      // Проверяем, есть ли регионы в этой локации (если есть - значит это защищенная территория)
-      return regions.size() > 0;
-   }
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void on(BlockPistonRetractEvent event) {
+        // липкий поршень тянет блоки к себе: проверяем целевые позиции
+        Vector dir = event.getDirection().getDirection().multiply(-1); // назад к поршню
+        for (Block moved : event.getBlocks()) {
+            Location target = moved.getLocation().add(dir);
+            if (!Utils.isGriefAllowed(plugin, target)) return;
+        }
+        if (Utils.isGriefAllowed(plugin, event.getBlock().getLocation())) {
+            event.setCancelled(false);
+        }
+    }
 }
