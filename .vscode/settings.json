@@ -1,0 +1,7 @@
+{
+    "java.compile.nullAnalysis.mode": "automatic",
+    "yaml.schemas": {
+        "https://www.schemastore.org/bukkit-plugin.json": "file:///c%3A/Users/dimas/IdeaProjects/WgAddon/src/main/resources/plugin.yml"
+    },
+    "java.configuration.updateBuildConfiguration": "automatic"
+}

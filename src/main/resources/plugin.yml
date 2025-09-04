@@ -1,0 +1,9 @@
+name: WGAddon
+version: '1.0'
+main: ru.bedepay.wgaddon.WgAddon
+api-version: '1.21'
+prefix: WGAddon
+authors: [ bedepay ]
+description: Фикс поршней, падающих блоков и специальные права для визеров в WorldGuard
+depend:
+  - WorldGuard
